@@ -1,0 +1,28 @@
+[project]
+name = "agent-eval"
+version = "0.1.0"
+description = "Reproducible agent test harness: ephemeral sandboxes, VCR/chaos proxy, multi-layer scoring"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_eval"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Fixture tasks contain their own test files; never collect them as harness tests.
+norecursedirs = ["tasks", ".venv"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]

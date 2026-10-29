@@ -1,0 +1,9 @@
+id: pager-boundary-001
+title: Handle page boundaries in page_slice
+prompt: |
+  In the repository at /workspace, refactor the function `page_slice` in `src/pager.py`
+  to handle boundary conditions: `page` and `per_page` must be positive integers
+  (raise ValueError otherwise), and a page past the end of the list returns an empty list.
+  Then run the test suite and make sure it passes.
+test_command: [python, -m, pytest, -q]
+timeout_s: 300

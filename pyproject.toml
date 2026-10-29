@@ -4,13 +4,18 @@ version = "0.1.0"
 description = "Reproducible agent test harness: ephemeral sandboxes, VCR/chaos proxy, multi-layer scoring"
 requires-python = ">=3.12"
 dependencies = [
+    "aiohttp>=3.14.5",
     "docker>=7.2.0",
     "pydantic>=2.7",
     "pyyaml>=6.0",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.4.1",
+    "ruff>=0.6",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -21,6 +26,8 @@ packages = ["src/agent_eval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 # Fixture tasks contain their own test files; never collect them as harness tests.
 norecursedirs = ["tasks", ".venv"]
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode
@@ -22,6 +23,12 @@ REDACTED_HEADERS = frozenset({"authorization", "x-api-key", "proxy-authorization
 REDACTED_VALUE = "REDACTED"
 # Body fields that vary between otherwise-identical requests.
 DEFAULT_IGNORED_BODY_FIELDS = frozenset({"metadata"})
+# Run-specific noise that tools echo back into the conversation (matched on the JSON text).
+DEFAULT_SCRUB = (
+    re.compile(r"\bin \d+(?:\.\d+)?s\b"),  # pytest: "2 passed in 0.01s"
+    re.compile(r"\(\d+(?:\.\d+)?s\)"),  # pytest durations: "(0.02s)"
+    re.compile(r"/tmp/pytest-of-[^\s\"\\]+"),
+)
 
 Headers = list[tuple[str, str]]
 
@@ -77,11 +84,14 @@ def request_key(
     query: str,
     body: bytes,
     ignore_body_fields: Iterable[str] = DEFAULT_IGNORED_BODY_FIELDS,
+    scrub: Iterable[re.Pattern[str]] = DEFAULT_SCRUB,
 ) -> str:
     """Stable hash of what makes two requests "the same call".
 
     Headers are excluded (auth and SDK user-agents vary). JSON bodies are canonicalised: key
     order is irrelevant and `ignore_body_fields` are dropped. Query parameters are sorted.
+    `scrub` patterns are replaced with a placeholder in the canonical body, so tool output that
+    embeds run-specific noise (e.g. pytest timings echoed back to the model) still matches.
     """
     canon_query = urlencode(sorted(parse_qsl(query, keep_blank_values=True)))
     try:
@@ -95,6 +105,11 @@ def request_key(
         canon_body = json.dumps(parsed, sort_keys=True, separators=(",", ":")).encode()
     else:
         canon_body = body
+    if scrub:
+        text = canon_body.decode(errors="replace")
+        for pattern in scrub:
+            text = pattern.sub("<scrubbed>", text)
+        canon_body = text.encode()
     h = hashlib.sha256()
     for part in (method.upper().encode(), path.encode(), canon_query.encode(), canon_body):
         h.update(len(part).to_bytes(8, "big"))

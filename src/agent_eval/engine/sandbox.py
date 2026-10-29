@@ -92,6 +92,7 @@ class Sandbox:
         self.run_id = uuid.uuid4().hex[:12]
         self.container: Container | None = None
         self.network: Network | None = None
+        self._extras: list[Container] = []  # sidecars, removed before the network
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -123,12 +124,23 @@ class Sandbox:
         self.close()
 
     def close(self) -> None:
-        container, network = self.container, self.network
+        container, network, extras = self.container, self.network, self._extras
         self.container = self.network = None
+        self._extras = []
+        for extra in extras:
+            _quiet(lambda extra=extra: extra.remove(force=True, v=True))
         if container is not None:
             _quiet(lambda: container.remove(force=True, v=True))
         if network is not None:
             _quiet(network.remove)
+
+    def adopt(self, container: Container) -> None:
+        """Tie a sidecar container's lifetime to this sandbox."""
+        self._extras.append(container)
+
+    @property
+    def labels(self) -> dict[str, str]:
+        return {LABEL: "1", RUN_LABEL: self.run_id}
 
     # --- operations --------------------------------------------------------
 

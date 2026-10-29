@@ -11,8 +11,9 @@ import asyncio
 import json
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Self
 
 import aiohttp
@@ -74,6 +75,7 @@ class Exchange:
     latency_ms: float
     replayed: bool
     miss: bool = False
+    ts: float = 0.0  # wall-clock epoch seconds at request start, for merging with agent logs
 
 
 class VCRProxy:
@@ -87,6 +89,7 @@ class VCRProxy:
         ignore_body_fields: frozenset[str] = DEFAULT_IGNORED_BODY_FIELDS,
         upstream_headers: dict[str, str] | None = None,
         stream_speed: float = 0.0,
+        exchange_log: str | None = None,
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
@@ -94,6 +97,8 @@ class VCRProxy:
         upstream_headers: set on every forwarded request (e.g. the real API key), so the
             sandboxed agent only ever holds a dummy credential.
         stream_speed: replay SSE chunks with their recorded delays x this factor (0 = instant).
+        exchange_log: if set, every exchange (hits, misses, recordings) is appended to this
+            JSONL file as it happens.
         """
         self.mode = ProxyMode(mode)
         if self.mode is ProxyMode.RECORD and not upstream:
@@ -104,6 +109,7 @@ class VCRProxy:
         self.ignore_body_fields = ignore_body_fields
         self.upstream_headers = upstream_headers or {}
         self.stream_speed = stream_speed
+        self.exchange_log = Path(exchange_log) if exchange_log else None
         self.host, self.port = host, port
 
         self.exchanges: list[Exchange] = []
@@ -162,6 +168,7 @@ class VCRProxy:
         self._seen[key] += 1
         index = len(self.exchanges)
         started = self._now_ms()
+        wall = time.time()
 
         if self.mode is ProxyMode.REPLAY:
             response, status, miss = await self._replay(request, key, occurrence, index)
@@ -180,8 +187,12 @@ class VCRProxy:
             latency_ms=self._now_ms() - started,
             replayed=self.mode is ProxyMode.REPLAY and not miss,
             miss=miss,
+            ts=wall,
         )
         self.exchanges.append(ex)
+        if self.exchange_log:
+            with self.exchange_log.open("a") as f:
+                f.write(json.dumps(asdict(ex)) + "\n")
         if miss:
             self.misses.append(ex)
         return response
@@ -316,6 +327,7 @@ def _main() -> None:
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--stream-speed", type=float, default=0.0)
+    p.add_argument("--exchange-log", help="append every exchange to this JSONL file")
     p.add_argument(
         "--inject-header",
         action="append",
@@ -337,6 +349,7 @@ def _main() -> None:
             match=MatchPolicy(args.match),
             upstream_headers=injected,
             stream_speed=args.stream_speed,
+            exchange_log=args.exchange_log,
             host=args.host,
             port=args.port,
         )

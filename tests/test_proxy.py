@@ -1,6 +1,7 @@
 """M2: VCR proxy record/replay against an in-process fake upstream (no network, no Docker)."""
 
 import asyncio
+import json
 import time
 from pathlib import Path
 
@@ -270,3 +271,14 @@ async def test_recording_is_flushed_per_exchange(upstream, cassette_path):
         assert len(Cassette.load(cassette_path)) == 1  # readable before the proxy stops
         await send(proxy, "POST", "/v1/messages", json={"q": 2})
         assert len(Cassette.load(cassette_path)) == 2
+
+
+def test_key_scrubs_pytest_timings_echoed_back_by_tools():
+    def body(summary: str) -> bytes:
+        return json.dumps({"messages": [{"content": summary}]}).encode()
+
+    fast = request_key("POST", "/v1/messages", "", body("2 passed in 0.01s"))
+    slow = request_key("POST", "/v1/messages", "", body("2 passed in 1.37s"))
+    other = request_key("POST", "/v1/messages", "", body("1 failed, 1 passed in 0.01s"))
+    assert fast == slow
+    assert fast != other  # only the timing is scrubbed, not the outcome

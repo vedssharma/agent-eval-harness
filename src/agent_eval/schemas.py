@@ -136,6 +136,8 @@ class RunResult(Strict):
     diff: str = ""
     trace: Trace = Field(default_factory=Trace)
     wall_ms: float = 0.0
+    agent_exit_code: int | None = None
+    cassette_misses: int = 0
     error: str | None = None
 
     @property

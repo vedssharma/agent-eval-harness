@@ -19,7 +19,8 @@ Goal: a reproducible harness that runs a coding agent against tasks in ephemeral
 ```
 src/agent_eval/
   schemas.py        # TaskSpec, Trace, ToolCall, RunResult, Cassette (pydantic)
-  engine/           # container lifecycle, task injection, artifact capture
+  engine/           # sandbox lifecycle, task injection, artifact capture
+    backends/       # (M9) docker (default), daytona, modal behind one SandboxBackend protocol
   proxy/            # server.py, cassette.py, chaos.py, sse.py
   agents/           # adapters: reference tool-loop agent, generic command adapter
   scoring/          # state.py, trajectory.py, stats.py
@@ -89,12 +90,26 @@ Each milestone ends in something runnable. We build a thin vertical slice (M0-M3
 - Baseline comparison: `agent-eval compare baseline.json new.json` fails CI on a regression in pass^k, trajectory score, or token budget.
 - Cassette hygiene: secret scrubbing checks, cassette-staleness warning when the prompt or tools change.
 
+### M9: Cloud sandbox backends (Daytona, Modal)
+Lets a user run evals on a hosted sandbox instead of local Docker (no local daemon, more parallelism, and the only option on machines that can't run containers).
+
+- **Backend abstraction first.** Extract a `SandboxBackend` protocol from today's `Sandbox`: `start`, `exec`, `copy_in`, `read_file`/`write_file`, `close`. The runner, state scorer, diff capture and trace builder only use this surface, so they stay unchanged. The Docker implementation becomes the reference backend. This refactor is small now and gets harder as M4-M8 add Docker-specific code, so it should land **before M6** even though the cloud backends themselves come last.
+- **Proxy placement is the hard part.** Today the proxy is a sidecar container on a Docker `--internal` network, which has no cloud equivalent. Plan: run the proxy as a process *inside* the sandbox and point the agent at `localhost` (works everywhere, needs no tunnel). Install the proxy package into the sandbox image and upload the cassette at start; download the cassette and exchange log at the end. The local Docker backend can adopt the same mode so both paths share one code path.
+- **Egress control.** On Docker the internal network guarantees all traffic goes through the proxy. On cloud backends use the provider's network controls (block-all or allow-list) where available, and have the isolation test prove it. If a backend can't restrict egress, REPLAY runs are still deterministic, but RECORD and CHAOS must warn that the agent could bypass the proxy.
+- **Images and cold start.** Build or register the base image per provider (Daytona snapshot, Modal `Image`), pinned by content hash like the proxy image. Report sandbox creation time separately so it doesn't pollute agent latency numbers.
+- **Credentials.** Provider tokens and the upstream API key come from environment variables on the host; the real API key is only ever given to the in-sandbox proxy process, never to the agent's environment.
+- **Config:** `--backend docker|daytona|modal` on the CLI, with per-backend options in a config file. Provider SDKs are optional extras (`uv sync --extra daytona`).
+- **Tests:** a backend conformance suite that every backend must pass (exec, timeout exit code 124, file round-trip, diff capture, isolation, teardown with no leaked sandboxes). Cloud runs are opt-in, gated on credentials, and skipped in CI by default.
+- **Done when:** the M3 end-to-end test (record, then offline replay) passes unchanged on Daytona and on Modal, and the same cassette replays identically on Docker and on both.
+
 ## Risks and mitigations
 | Risk | Mitigation |
 |---|---|
 | Cassettes break whenever the prompt changes | Canonical keys, by-order fallback, and a staleness report. |
 | SSE replay timing differs from live | Store chunk timings and replay them with an optional speed factor. |
 | macOS host-to-container networking differs from Linux | Run the proxy on the host with an internal network plus a gateway alias, or run the proxy in a sidecar container. Decide in M1/M2. |
+| Cloud providers differ in networking, images, and APIs (and change them) | Narrow `SandboxBackend` protocol, a shared conformance suite, in-sandbox proxy, and verifying each provider's current SDK/docs before implementing. |
+| Cloud sandboxes can't enforce proxy-only egress | Use provider allow-lists where offered; otherwise warn loudly in RECORD/CHAOS. |
 | Leaked containers | Labels plus a reaper command and a test that asserts a clean teardown. |
 | Agent edits the tests | Hidden tests are injected post-run (decision 3). |
 
@@ -102,4 +117,5 @@ Each milestone ends in something runnable. We build a thin vertical slice (M0-M3
 1. Which agent is under test first: the reference tool-loop in this repo, or an existing agent CLI (e.g. Claude Code) run through a command adapter?
 2. LLM API shape for the proxy: Anthropic Messages only first, or OpenAI-compatible too?
 3. Visualizer: static HTML report (recommended to start) or a live FastAPI dashboard?
-4. Do you want this wrapped as a Prime Lab / `verifiers` environment later? The workspace AGENTS.md covers that framework; this plan assumes a standalone package.
+4. Which cloud backend first, Daytona or Modal (or both)? Both are planned for M9.
+5. Do you want this wrapped as a Prime Lab / `verifiers` environment later? The workspace AGENTS.md covers that framework; this plan assumes a standalone package.

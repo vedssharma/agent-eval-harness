@@ -8,4 +8,5 @@ uv run pytest
 uv run ruff check .
 ```
 
-Status: M0 (schemas, task format, toy task) complete.
+Status: M0 (schemas, task format, toy task) and M1 (ephemeral sandbox engine) complete.
+Docker/Podman tests are skipped automatically when no container runtime is reachable.

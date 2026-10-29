@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Reproducible agent test harness: ephemeral sandboxes, VCR/chaos proxy, multi-layer scoring"
 requires-python = ">=3.12"
 dependencies = [
+    "docker>=7.2.0",
     "pydantic>=2.7",
     "pyyaml>=6.0",
 ]

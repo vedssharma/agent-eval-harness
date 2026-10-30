@@ -15,7 +15,7 @@ from .engine.sandbox import TASK_DIR
 from .proxy import MatchPolicy, ProxyMode
 from .proxy.cassette import Cassette
 from .schemas import RunMode, RunResult
-from .scoring import score_state
+from .scoring import score_state, score_trajectory
 from .tasks import Task
 from .trace import build_trace
 
@@ -101,6 +101,9 @@ def _run(client: docker.DockerClient, task: Task, cfg: RunConfig, result: RunRes
         cassette = Cassette.load(cassette_path)
 
     result.trace = build_trace(agent_log, exchanges, cassette)
+    reference = task.reference_path()
+    if reference:
+        result.trajectory = score_trajectory(result.trace, reference)
     result.cassette_misses = sum(1 for e in exchanges if e["miss"])
     if result.cassette_misses:
         result.error = (

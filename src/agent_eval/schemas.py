@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Strict(BaseModel):
@@ -29,6 +30,16 @@ class ReferenceStep(Strict):
     args: dict[str, Any] = Field(default_factory=dict)
     match: MatchMode = MatchMode.SUBSET
     optional: bool = False
+
+    @model_validator(mode="after")
+    def _regexes_compile(self) -> ReferenceStep:
+        if self.match is MatchMode.REGEX:
+            for key, pattern in self.args.items():
+                try:
+                    re.compile(str(pattern))
+                except re.error as exc:
+                    raise ValueError(f"args[{key!r}] is not a valid regex: {exc}") from exc
+        return self
 
 
 class TaskSpec(Strict):
@@ -127,12 +138,47 @@ class StateScore(Strict):
     output: str = ""
 
 
+class AlignKind(StrEnum):
+    MATCHED = "matched"  # same tool, arguments conform to the reference
+    ARG_MISMATCH = "arg_mismatch"  # same tool, arguments do not conform
+    MISSING = "missing"  # a required reference step the agent never performed
+    SKIPPED_OPTIONAL = "skipped_optional"  # an optional reference step, not penalised
+    EXTRA = "extra"  # an agent call with no counterpart in the reference
+
+
+class AlignedPair(Strict):
+    kind: AlignKind
+    ref_index: int | None = None  # index into the reference path
+    call_index: int | None = None  # index into the trace's tool calls
+    tool: str
+    detail: str = ""
+
+
+class TrajectoryScore(Strict):
+    """How closely the agent's tool-call sequence follows the reference path."""
+
+    score: float  # weighted blend of the three components below, in [0, 1]
+    tool_precision: float  # matched calls / agent calls (penalises extras)
+    tool_recall: float  # matched reference steps / required reference steps
+    tool_selection: float  # F1 of precision and recall
+    arg_conformity: float  # matched calls whose arguments conform / matched calls
+    efficiency: float  # 1 - (redundant calls + loops) / agent calls, floored at 0
+    redundant_calls: int  # repeats of an identical call that learned nothing new
+    loops: int  # back-to-back repeats of a 2-3 call cycle (ABAB, ABCABC)
+    extra_calls: int
+    missing_steps: int
+    n_calls: int
+    n_reference: int
+    alignment: list[AlignedPair] = Field(default_factory=list)
+
+
 class RunResult(Strict):
     task_id: str
     iteration: int
     mode: RunMode
     seed: int | None = None
     state: StateScore | None = None
+    trajectory: TrajectoryScore | None = None
     diff: str = ""
     trace: Trace = Field(default_factory=Trace)
     wall_ms: float = 0.0

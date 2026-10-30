@@ -56,6 +56,14 @@ def run(
         typer.echo(f"tests:       exit code {result.state.exit_code}")
     typer.echo(f"agent exit:  {result.agent_exit_code}")
     typer.echo(f"tool calls:  {len(result.trace.tool_calls())}")
+    if result.trajectory:
+        t = result.trajectory
+        typer.echo(
+            f"trajectory:  {t.score:.2f}  (selection {t.tool_selection:.2f}, "
+            f"args {t.arg_conformity:.2f}, efficiency {t.efficiency:.2f}; "
+            f"{t.extra_calls} extra, {t.missing_steps} missing, "
+            f"{t.redundant_calls} redundant, {t.loops} loops)"
+        )
     typer.echo(f"tokens:      {result.trace.input_tokens} in / {result.trace.output_tokens} out")
     typer.echo(f"wall time:   {result.wall_ms / 1000:.1f}s")
     typer.echo(f"misses:      {result.cassette_misses}")

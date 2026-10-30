@@ -8,7 +8,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-Status: M0-M3 complete (schemas, sandbox engine, VCR proxy, first end-to-end run).
+Status: M0-M4 complete (schemas, sandbox engine, VCR proxy, end-to-end run, trajectory scoring).
 
 ```bash
 export ANTHROPIC_API_KEY=...                     # held by the proxy sidecar, never the agent

@@ -16,6 +16,7 @@ from agent_eval.proxy.cassette import Cassette
 from agent_eval.runner import RunConfig, run_task
 from agent_eval.schemas import RunMode
 from agent_eval.tasks import Task, load_task
+from agent_eval.trace import trace_from_cassette
 
 from .fake_anthropic import ScriptedAnthropic
 
@@ -106,6 +107,34 @@ def test_agent_only_ever_holds_a_dummy_key(good):
     assert REAL_KEY not in cassette.read_text()  # and it never reached the cassette
 
 
+def test_trajectory_matches_the_reference_path(good):
+    t = good[0].trajectory
+    assert t is not None and t.score == 1.0
+    assert (t.extra_calls, t.missing_steps, t.redundant_calls, t.loops) == (0, 0, 0, 0)
+    assert [p.tool for p in t.alignment] == ["read_file", "write_file", "bash"]
+
+
+def test_trajectory_and_state_are_independent_layers(bad):
+    result = bad[0]
+    assert not result.passed  # wrong code...
+    assert result.trajectory.score == 1.0  # ...reached by exactly the reference tool sequence
+
+
+def test_trace_rebuilt_from_the_cassette_alone_agrees_with_the_agent_log(good):
+    result, _, cassette = good
+    rebuilt = trace_from_cassette(Cassette.load(cassette))
+    assert [(c.name, c.arguments) for c in rebuilt.tool_calls()] == [
+        (c.name, c.arguments) for c in result.trace.tool_calls()
+    ]
+    assert [(s.call_id, s.output, s.is_error) for s in rebuilt.steps if s.type == "tool_result"] == [
+        (s.call_id, s.output, s.is_error) for s in result.trace.steps if s.type == "tool_result"
+    ]
+    assert (rebuilt.input_tokens, rebuilt.output_tokens) == (
+        result.trace.input_tokens,
+        result.trace.output_tokens,
+    )
+
+
 def test_cassette_has_one_entry_per_llm_call(good):
     assert len(Cassette.load(good[2])) == 4
 
@@ -174,6 +203,7 @@ def test_cli_replay_exit_codes(docker_client, good, bad, tmp_path):
     ok = runner.invoke(app, [*base, "--cassette", str(good[2])])
     assert ok.exit_code == 0, ok.output
     assert "PASS" in ok.output and "misses:      0" in ok.output
+    assert "trajectory:  1.00" in ok.output
 
     fail = runner.invoke(app, [*base, "--cassette", str(bad[2])])
     assert fail.exit_code == 1 and "FAIL" in fail.output
